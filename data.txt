@@ -1,0 +1,7 @@
+server.ip = 192.168.1.1
+server.port = 8080
+server.timeout = 30
+log.level = debug
+log.file = /var/log/app.log
+features.cache.enabled = true
+features.cache.size = 1024
