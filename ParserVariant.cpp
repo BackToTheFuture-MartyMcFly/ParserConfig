@@ -29,6 +29,17 @@ std::vector<std::string_view> split(std::string_view str, char delimiter) {
 	return result;
 }
 
+constexpr bool isSpace(char c) {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';		//C++20
+}
+
+std::string_view trim(std::string_view sv) {
+	while (!sv.empty() && isSpace(sv.front())) sv.remove_prefix(1);
+	while (!sv.empty() && isSpace(sv.back()))  sv.remove_suffix(1);
+	return sv;
+}
+
+
 class ConfigNode;
 using ConfigValue = std::variant<int, bool, std::string, ConfigNode>;
 
@@ -104,28 +115,25 @@ public:
 				current = &std::get<ConfigNode>(it->second);
 			}
 		}
+
+		return std::nullopt;
 	
 	}
 
 };
 
-
 class Parser {
 private:
 	fs::path m_path;
-	bool fileExist;
 
 public:
 
-	Parser() : m_path("..\\data.txt"), fileExist(true) {};
-	Parser(fs::path a_path) : m_path(a_path) { 
-		fs::exists(m_path) ? 
-			fileExist = true : fileExist = false;
-	};
+	Parser() : m_path("..\\data.txt") {};
+	Parser(fs::path a_path) : m_path(a_path) {};
 
 	std::optional<ConfigNode> parse() const
 	{
-		if (!fileExist)
+		if (fs::exists(m_path))
 			return std::nullopt;
 
 		std::ifstream file(m_path);
@@ -151,8 +159,8 @@ public:
 				enter = strV.size();
 			}
 
-			std::string_view key = strV.substr(start, eq - start - 1);
-			std::string_view value = strV.substr(eq + 2, enter - eq - 2);
+			std::string_view key = trim(strV.substr(start, eq - start));
+			std::string_view value = trim(strV.substr(eq + 1, enter - eq - 1));
 
 			ConfigValue variant;
 
