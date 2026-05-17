@@ -7,8 +7,108 @@
 #include <optional>
 #include <fstream>
 
-using VariantMap = std::unordered_map<std::string, std::variant<int, bool, std::string>>;
 namespace fs = std::filesystem;
+
+std::vector<std::string_view> split(std::string_view str, char delimiter) {
+	std::vector<std::string_view> result;
+	size_t start = 0;
+	size_t end = str.find(delimiter);
+
+	while (end != std::string_view::npos) {
+		if (end != start) {  
+			result.push_back(str.substr(start, end - start));
+		}
+		start = end + 1;
+		end = str.find(delimiter, start);
+	}
+
+	if (start < str.size()) { 
+		result.push_back(str.substr(start));
+	}
+
+	return result;
+}
+
+class ConfigNode;
+using ConfigValue = std::variant<int, bool, std::string, ConfigNode>;
+
+class ConfigNode {
+
+private:
+	std::unordered_map<std::string, ConfigValue> m_values;
+
+public:
+
+	void insertValue(const std::string_view& key, const ConfigValue& value) {
+		auto parts = split(key, '.');
+		ConfigNode* current = this;
+
+		for (size_t i = 0; i < parts.size(); ++i) {
+			std::string part(parts[i]);
+			if (i == parts.size() - 1) {
+				current->m_values[part] = value;
+			}
+			else {
+				if (!current->m_values.contains(part)) {
+					current->m_values[part] = ConfigNode{};
+				}
+				current = &std::get<ConfigNode>(current->m_values[part]);
+			}
+		}
+	}
+
+	void print(int indent = 0) const {
+		const std::string indentStr(indent * 2, ' ');
+
+		for (const auto& [key, value] : m_values) {
+			if (const ConfigNode* child = std::get_if<ConfigNode>(&value)) {
+				std::cout << indentStr << key << ":\n";
+				child->print(indent + 1);
+			}
+			else {
+				std::cout << indentStr << key << " = ";
+
+				if (const int* val = std::get_if<int>(&value)) {
+					std::cout << *val;
+				}
+				else if (const bool* val = std::get_if<bool>(&value)) {
+					std::cout << std::boolalpha << *val;
+				}
+				else if (const std::string* val = std::get_if<std::string>(&value)) {
+					std::cout << *val;
+				}
+				std::cout << std::endl;
+			}
+		}
+	}
+
+	template<typename T>
+	std::optional<T> getValue(std::string_view key) const {
+		auto parts = split(key, '.');
+		const ConfigNode* current = this;
+
+		for (size_t i = 0; i < parts.size(); ++i) {
+			std::string part(parts[i]);
+			if (!current->m_values.contains(part))	// C++20
+				return std::nullopt;
+
+
+			auto it = current->m_values.find(part);
+			if (i == parts.size() - 1) {
+					if (std::holds_alternative<T>(it->second))
+						return std::get<T>(it->second);
+					return std::nullopt;
+			}
+			else {
+				if (!std::holds_alternative<ConfigNode>(it->second)) return std::nullopt;
+				current = &std::get<ConfigNode>(it->second);
+			}
+		}
+	
+	}
+
+};
+
 
 class Parser {
 private:
@@ -17,13 +117,13 @@ private:
 
 public:
 
-	Parser() : m_path("D:\\C++_projects\\ParserVariant\\data.txt"), fileExist(true) {};
+	Parser() : m_path("..\\data.txt"), fileExist(true) {};
 	Parser(fs::path a_path) : m_path(a_path) { 
 		fs::exists(m_path) ? 
 			fileExist = true : fileExist = false;
 	};
 
-	std::optional<VariantMap> parse() const
+	std::optional<ConfigNode> parse() const
 	{
 		if (!fileExist)
 			return std::nullopt;
@@ -38,7 +138,7 @@ public:
 		content.resize(size);
 		file.read(content.data(), size);
 
-		VariantMap result;
+		ConfigNode result;
 		std::string_view strV(content);
 		size_t start = 0;
 
@@ -54,25 +154,22 @@ public:
 			std::string_view key = strV.substr(start, eq - start - 1);
 			std::string_view value = strV.substr(eq + 2, enter - eq - 2);
 
-			std::cout << "Key: " << key << std::endl;
-			std::cout << "Value: " << value << std::endl;
-
-			std::variant<int, bool, std::string> variant;
+			ConfigValue variant;
 
 			int ivalue;
 			auto [ptr, erc] = std::from_chars(value.data(), value.data() + value.size(), ivalue);
-			if (erc == std::errc())
+			if (erc == std::errc() && ptr == value.data() + value.size())
 				variant = ivalue;
 			else if (value == "true")
 				variant = true;
 			else if (value == "false")
 				variant = false;
 			else
-				variant = value.data();
+				variant = std::string(value);
 
-			result.insert(std::make_pair(key, variant));
+			result.insertValue(key, variant);
 
-			start = enter + 1;
+			start = enter + 1;						
 		}
 
 		return result;
@@ -82,23 +179,20 @@ public:
 
 int main()
 {
-	Parser p;
-	auto res = p.parse();
-	/*if (res.has_value()) {
-		for (auto [key, value] : res.value()) {
-			//std::cout << "Key: " << key << " =  Value: ";
-			if (int* val = std::get_if<int>(&value)) {
-				std::cout << "Value: " << *val << " END";
-			}
-			else if (bool* val = std::get_if<bool>(&value)) {
-				std::cout << "Value: " << *val << " END";
-			}
-			else if (std::string* val = std::get_if<std::string>(&value)) {
-				std::cout << "Value: " << *val << " END";
-			}
-			std::cout << std::endl;
-		}
-	}*/
+	/*ConfigNode node;
+	node.insertValue("server.ip", "10.98.67.2");
+	node.insertValue("server.port", "8080");
+	node.insertValue("server.reconnect", true);
+	node.insertValue("metadata.resolve", "yes");
+	node.insertValue("q.w.e.r.t.y.u.io", 4);
+
+	ConfigNode node1 = node.getValue<ConfigNode>(std::string("server")).value_or(ConfigNode{});
+	node1.print();*/
+	Parser parser;
+	ConfigNode node = parser.parse().value_or(ConfigNode{});
+
+	node.print();
+	
 	system("PAUSE");
 	return 0;
 }
